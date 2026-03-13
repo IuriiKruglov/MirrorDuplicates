@@ -1,8 +1,7 @@
 # Mirror Duplicates Global — Blender Addon v1.0
 
-**Authors:** Claude (Anthropic AI) & Kruglov Iurii  
-**Blender:** 3.0 and above  
-**Location:** 3D Viewport → Sidebar (N panel) → **Mirror Dup** tab
+![MirrorDemo2](https://github.com/user-attachments/assets/0382a008-7b91-4519-a911-5b8c4c27edce)
+
 
 ---
 
@@ -129,17 +128,4 @@ The reflection matrix `M` for each axis satisfies `dst_world = M @ src_world @ M
 
 ---
 
-## Known Limitations
 
-- **Only location and rotation** animation curves are rebuilt on the mirrored action. Scale curves and custom property curves are not mirrored.
-- **The current frame** determines the static rest pose of the duplicates. Run the addon on a frame that represents the rest pose of your rig.
-- **Applied scale recommended** — non-uniform scales in the hierarchy are handled by the matrix math but may produce unexpected results in complex edge cases.
-
----
-
-## Files
-
-| File | Description |
-|------|-------------|
-| `mirror_duplicates.py` | The addon |
-| `README.md` | This file |
