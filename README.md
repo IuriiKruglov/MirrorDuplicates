@@ -1,8 +1,5 @@
 # Mirror Duplicates Global — Blender Addon v2.4
 
-**Authors:** Claude (Anthropic AI) & Kruglov Iurii  
-**Blender:** 3.0 and above  
-**Location:** `View3D › Sidebar › Mirror Dup` tab
 
 ---
 
