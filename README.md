@@ -1,131 +1,242 @@
-# Mirror Duplicates Global — Blender Addon v1.0
+# Mirror Duplicates Global — Blender Addon v2.4
 
-![MirrorDemo2](https://github.com/user-attachments/assets/0382a008-7b91-4519-a911-5b8c4c27edce)
-
+**Authors:** Claude (Anthropic AI) & Kruglov Iurii  
+**Blender:** 3.0 and above  
+**Location:** `View3D › Sidebar › Mirror Dup` tab
 
 ---
 
 ## What It Does
 
-This addon duplicates selected objects and mirrors the copies across the **global X, Z or Y axis**. It handles everything a plain mirror would miss:
+Mirror Duplicates Global creates symmetrical duplicates of selected objects — including their full parent hierarchy and all animation curves — reflected across the global X, Y, or Z axis. The reflection plane is defined by the `Anim_mirror_center` empty object, which can be placed anywhere in the scene before running the operation.
 
-- **Full parent–child hierarchy** — relationships between duplicated objects are preserved and correctly re-wired to their mirrored counterparts. If a selected object's parent was not selected (e.g. a master root), the duplicate is re-parented back to that same unselected parent.
-- **Custom normals** — geometry is mirrored using Blender's Mirror modifier, which preserves custom split normals internally. No manual face flipping is performed.
-- **Animation curves** — all keyframes are rebuilt with correct mirrored values, preserving interpolation mode, easing, and bezier handle types and positions.
-- **All rotation modes** — Euler (all orders), Quaternion and Axis-Angle are all supported.
-- **All UV channels** — every UV channel on every mirrored object is correctly restored after the operation.
+Key design constraint: **scale is never applied to geometry**. Mirroring is done via Blender's Mirror modifier, so custom split normals (custom normals baked into meshes for smooth shading across hard edges) are fully preserved.
 
 ---
 
-## Installation
+## Features
 
-1. In Blender go to **Edit → Preferences → Add-ons**.
-2. Click **Install…** and select `mirror_duplicates.py`.
-3. Enable the addon by ticking the checkbox next to **Object: Mirror Duplicates Global**.
+### Mirroring
+- Mirror across global **X**, **Y**, or **Z** axis with dedicated panel buttons
+- Mirrors all selected objects in one operation, preserving the full parent–child hierarchy
+- Mesh geometry is mirrored using the Mirror modifier with `Anim_mirror_center` as the reference object — custom normals are never broken
+- Object origins are mirrored to match geometry positions
+- All UV channels are correctly restored after the modifier operation
+
+### Hierarchy
+- Parent–child relationships are reconstructed on the duplicates
+- Objects whose parent is outside the selection remain parented to the same original parent
+- `matrix_parent_inverse` (mpi) is correctly recomputed for each object so that the parent–child relationship behaves identically to the source hierarchy
+
+### Animation
+- All animation curves (location, rotation, scale — all channels) are mirrored
+- Supports Euler (all rotation orders), Quaternion, and Axis-Angle rotation modes
+- Bezier handle types, interpolation modes, and easing settings are preserved
+- Animated parents are correctly handled: the parent's world matrix is re-evaluated at every child keyframe frame, not just at the saved frame
+
+### Mirror Center
+- `Anim_mirror_center_X`, `Anim_mirror_center_Y`, `Anim_mirror_center_Z` empty objects are created automatically at the world origin on first use
+- These objects **remain in the scene** after the operation so they can be inspected and reused
+- **Manual placement**: use the "Create / Reset" buttons in the panel to create a center empty at the origin, then move it to any position before running the mirror. The reflection plane will pass through that position
+- The panel shows the current coordinates of each center object at a glance
+
+### Naming
+- All duplicated objects receive a `_mirrored` suffix (e.g. `Wing_L` → `Wing_L_mirrored`)
+- Mesh data blocks are also renamed with `_mirrored`
+
+### Debug Mode
+- Toggle **Debug Mode** in the panel before running to capture a full diagnostic snapshot
+- Writes a `.json` log file next to the `.blend` file (or `/tmp` if the file has not been saved)
+- The log contains:
+  - Timestamp and axis used
+  - `Anim_mirror_center` name and location
+  - Ordered list of every operation performed (STEP 1 through 12)
+  - Full data for every source object: name, type, parent, rotation mode, local transforms (location / rotation / scale / matrix_local / matrix_parent_inverse), world transforms, and all FCurve keyframes with interpolation and handle data
+  - Full data for every mirrored object after the operation
+
+---
+
+## How to Install
+
+1. In Blender open **Edit › Preferences › Add-ons**
+2. Click **Install…** and select `mirror_duplicates_v2.py`
+3. Enable the addon — the **Mirror Dup** tab appears in the `N` panel of the 3D Viewport
 
 ---
 
 ## How to Use
 
-1. Select the objects you want to mirror. Select the full hierarchy you want duplicated — do **not** select a root parent you want to keep shared between both sides.
-2. Open the **N panel** in the 3D Viewport (press `N` if it is hidden).
-3. Go to the **Mirror Dup** tab.
-4. Click one of the three buttons:
+### Basic mirror (center at world origin)
 
-| Button | Mirrors across | Negates |
-|--------|---------------|---------|
-| **Mirror X** | Global YZ plane | X coordinates |
-| **Mirror Z** | Global XZ plane | Y coordinates (Blender modifier Y axis) |
-| **Mirror Y** | Global XY plane | Z coordinates (Blender modifier Z axis) |
+1. Select the objects you want to mirror (select the whole hierarchy)
+2. Open the `N` panel › **Mirror Dup** tab
+3. Click **Mirror X**, **Mirror Y**, or **Mirror Z**
+4. The mirrored duplicates appear on the opposite side of the chosen axis, named with `_mirrored`
 
-The addon duplicates the selected objects, mirrors their geometry, origins and animation, then leaves the new duplicates selected when finished.
+### Mirror with a custom center
 
----
+1. In the **Mirror Center (manual placement)** section, click **Create Anim_mirror_center_X** (or Y / Z)
+2. The empty is created at the origin and selected — move it to the desired reflection plane position (e.g. `G X -1.5 Enter` to place it at X = −1.5)
+3. Select your objects again and click the corresponding **Mirror** button
+4. The reflection plane passes through the empty's position
 
-## The Anim_mirror_center Object
+### Debugging a result
 
-When the operator runs it automatically creates a **Plain Axes empty** named `Anim_mirror_center` at the world origin `(0, 0, 0)`. This empty is used internally as the reference object for the Mirror modifier and is **automatically deleted** at the end of the operation — it will not appear in your scene after the addon finishes.
-
----
-
-## How It Works — Technical Overview
-
-The addon runs in 12 steps inside a single undo block.
-
-### Step 1 — Create mirror center
-`Anim_mirror_center` is created at `(0, 0, 0)`. Its transforms are always reset to the world origin so the mirror plane is consistently aligned to global axes.
-
-### Step 2 — Sort by hierarchy depth
-Selected objects are sorted so parents are always processed before their children.
-
-### Step 3 — Bake source data
-Before anything is duplicated or modified, the addon captures:
-- All **FCurves** from each source object's action.
-- **`matrix_local`** at every keyframe and at the current frame, by stepping through time with `frame_set()`. This must happen while the original hierarchy is intact so `matrix_local` includes the full parent-chain contribution.
-- **`matrix_parent_inverse`** (mpi) — Blender's internal correction matrix stored on each object.
-
-### Step 4 — Duplicate
-Each object is duplicated one at a time with `bpy.ops.object.duplicate()`, building a `source → duplicate` map.
-
-### Step 5 — Clear animation
-The duplicated action is removed from all duplicates. Animation is rebuilt from scratch in Step 9.
-
-### Step 6 — Mirror mesh geometry
-For each mesh duplicate (still at its original world position):
-
-1. A temporary UV map `anim_X` is created. **Smart UV Project** is used to project all faces into UV tile V 0–1. Smart UV Project is chosen over regular Unwrap because it works on any mesh regardless of whether UV seams exist — regular Unwrap can fail or produce incorrect results on seamless geometry.
-2. A **Mirror modifier** is added with `mirror_object = Anim_mirror_center` and `offset_v = 5`. The modifier mirrors geometry using the empty's position as the mirror plane reference. The `offset_v = 5` shifts the mirrored copy's UVs to V+5, outside the 0–1 tile.
-3. The modifier is applied — the mesh now contains both the original and the mirrored geometry.
-4. In Edit mode, all faces whose UV V coordinate is inside 0–1 (the originals) are selected and deleted, leaving only the mirrored copy.
-5. The temporary UV map `anim_X` is removed.
-
-Using the Mirror modifier rather than manual vertex manipulation is essential because it correctly handles **custom split normals** internally. Manual face flipping via bmesh destroys this data.
-
-### Step 7 — Mirror origins and fix negative scale
-With all mesh duplicates selected:
-
-- **Affect Only Origins** mode is enabled. The 3D cursor is placed at `(0, 0, 0)` and `transform.mirror` is called on the chosen axis. This moves each origin to its mirrored world position but introduces a −1 scale on that axis as a side effect.
-- Still in Affect Only Origins mode, the pivot is switched to **Individual Origins** and `transform.resize` is called with `−1` on the same axis in **Local** space. Each object scales around its own origin, flipping the scale sign back to positive without moving any geometry.
-
-### Step 8 — Set parent hierarchy and transforms
-For each duplicate, using proven matrix math:
-- Parent is set to the mirrored counterpart (if the original parent was also selected) or kept as the original parent.
-- `matrix_parent_inverse` is set to `M @ src_mpi @ M` where `M` is the reflection matrix for the chosen axis.
-- Location, rotation and scale are computed as:
-  ```
-  TRS_basis = inv(new_mpi) @ (M @ src_matrix_local @ M)
-  ```
-  and assigned directly to `location`, `rotation_*` and `scale` — **not** via `matrix_local` — to avoid a Blender depsgraph timing bug where the new mpi is not yet evaluated when `matrix_local` is decomposed, causing incorrect rotation values on child objects.
-
-### Step 9 — Rebuild mirrored animation
-For each keyframe of each source object:
-- The baked `matrix_local` is mirrored: `M @ src_local @ M`.
-- The mpi is removed: `TRS_basis = inv(new_mpi) @ mirrored_local`.
-- Location and rotation are decomposed and written to new FCurves on the duplicate's action.
-- Interpolation mode, easing, handle type and handle position are all copied from the source keyframe point.
-- For Euler rotation, `rot_q.to_euler(mode, prev_euler)` is used at each frame to maintain continuity and prevent sudden gimbal flips.
-
-### Step 10 — Restore UV positions
-The Mirror modifier's `offset_v = 5` shifted all mirrored UVs to V+5. Now that the original faces have been deleted, every UV channel of every mesh duplicate is shifted back by −5. All UV channels are processed by iterating `mesh.uv_layers` so objects with any number of channels are handled correctly.
-
-### Step 11 — Delete Anim_mirror_center
-The empty is removed with `bpy.data.objects.remove(mc, do_unlink=True)`, which unlinks it from all collections and purges it from `bpy.data`. Nothing is left over in the scene.
-
-### Step 12 — Restore frame and selection
-The current frame is restored to where it was before the operation. All duplicates are selected and the last one becomes the active object.
+1. Enable **Debug Mode** in the panel
+2. Run the mirror operation
+3. Open the `.json` log written next to your `.blend` — it contains the full before/after state of every object and all animation data
 
 ---
 
-## Mirror Matrix Reference
+## How It Works Internally
 
-The reflection matrix `M` for each axis satisfies `dst_world = M @ src_world @ M`:
+### Operation sequence (12 steps)
 
-| Button | M | Effect |
-|--------|---|--------|
-| Mirror X | diag(−1, 1, 1, 1) | Negates X coordinates |
-| Mirror Z | diag(1, −1, 1, 1) | Negates Y coordinates (modifier Y axis) |
-| Mirror Y | diag(1, 1, −1, 1) | Negates Z coordinates (modifier Z axis) |
+| Step | What happens |
+|------|-------------|
+| 1 | `Anim_mirror_center_<axis>` is created or found; its location defines the reflection plane |
+| 2 | Source objects are sorted parents-before-children |
+| 3 | Source data is collected: FCurves, world matrices at every keyframe, `matrix_parent_inverse`, parent world matrices at every child keyframe |
+| 4 | Each object is duplicated individually with `bpy.ops.object.duplicate` |
+| 5 | All animation is cleared from the duplicates |
+| 6 | Mesh geometry is mirrored via the Mirror modifier (preserves custom normals) |
+| 7 | Object origins are mirrored via 3D cursor pivot; negative scale introduced by origin mirror is corrected with Individual Origins resize |
+| 8 | Parent hierarchy is reconstructed; `matrix_parent_inverse` is recomputed; `dst.matrix_world` is set directly |
+| 9 | Mirrored animation actions are built from baked world matrices |
+| 10 | UV V coordinates are shifted back by −5 (undoing the Mirror modifier's `offset_v=5` used for face identification) |
+| 11 | `Anim_mirror_center` is retained in the scene |
+| 12 | Frame and selection are restored |
+
+### Mirror mathematics
+
+Two matrices drive all transform operations:
+
+**`M_lin`** — pure linear reflection through the world origin (just flips one axis sign). An involution: `M_lin @ M_lin = I`. Used for mirroring `matrix_parent_inverse` and as the right-hand factor in world matrix operations.
+
+**`M_at`** — affine reflection through `center_loc`: `T(c) @ M_lin @ T(−c)`. Equals `M_lin` when `center_loc = (0,0,0)`.
+
+All transform and animation math is done in **world space**:
+
+```
+new_world = M_at @ src_world @ M_lin
+```
+
+Working in world space means the reflection always uses global axes regardless of parent rotation, and the center offset applies once regardless of hierarchy depth.
+
+**`matrix_parent_inverse` (mpi) mirroring:**
+
+```
+parent IN selection:     new_mpi = M_lin @ src_mpi @ M_lin
+parent NOT in selection: new_mpi = M_lin @ src_mpi @ P⁻¹ @ M_at @ P
+```
+where `P` is the source parent's world matrix captured before any changes.
+
+**Animation local matrix per keyframe:**
+
+```
+mir_world_f   = M_at  @ src_world_f @ M_lin
+dst_par_w_f   = M_at  @ src_par_world_f @ M_lin   (parent in sel)
+              = src_par_world_f                     (parent outside sel)
+mir_local_f   = inv(new_mpi) @ inv(dst_par_w_f) @ mir_world_f
+```
+`mir_local_f` is decomposed into loc/rot/scale and written as keyframe values.
+
+### Geometry mirroring (why no negative scale)
+
+Applying a negative scale to fix mirrored geometry breaks custom split normals stored in mesh loops. The addon instead uses Blender's **Mirror modifier** with `Anim_mirror_center` as the mirror reference object.
+
+To isolate only the mirrored copy (the modifier produces both original and mirror):
+1. A temporary UV map (`anim_X`) is created and Smart UV Project is run so all original faces land in UV V range 0–1
+2. The modifier's `offset_v = 5` shifts mirrored-copy UVs to V+5 (outside 0–1)
+3. After applying, all faces with UV V inside 0–1 are deleted (originals)
+4. The temporary UV map is removed
+5. All remaining UV channels have V shifted back by −5 to restore correct UV positions
 
 ---
 
+## Development History
 
+### v1.0 — Initial release
+
+Core functionality established:
+
+- Mirror selected objects with full hierarchy across global X, Y, or Z
+- Geometry mirrored via Mirror modifier + UV offset trick (preserves custom normals)
+- Object origins mirrored via 3D cursor / Affect Only Origins
+- Negative scale corrected via Individual Origins + Local resize −1
+- `matrix_parent_inverse` recomputed for each duplicate
+- Animation baked from `matrix_local` at every source keyframe
+- Bezier handle types, interpolation, and easing copied from source curves
+- Euler gimbal-lock continuity preserved via `to_euler(mode, prev_euler)`
+- `Anim_mirror_center` created at origin for each run and deleted afterwards
+- Auto-keyframe disabled for the duration of the operation
+
+**Known issues in v1.0:** Y and Z buttons were swapped in the panel (`Mirror Z` label triggered axis Y and vice versa).
+
+---
+
+### v2.0 — New features
+
+Four features added on top of the working v1.0 base:
+
+- **`_mirrored` suffix** on all new objects and their mesh data blocks
+- **Axis-suffixed mirror center**: `Anim_mirror_center_X / _Y / _Z`. Each axis has its own persistent empty. The center is **not deleted** after the operation — it remains in the scene for inspection and reuse
+- **Manual center placement**: "Create / Reset" buttons in the panel create the center empty at the origin; the user can then move it to any position before mirroring. The Mirror modifier and all transform math use this position as the reflection plane origin
+- **Debug mode**: scene-level boolean toggle. When enabled, collects full object and animation data before and after the operation and writes a timestamped `.json` log next to the `.blend` file
+
+---
+
+### v2.1 — Center placement fixes (two bugs)
+
+**Bug 1:** `mirror_origins_and_fix_scale` (STEP 7) hardcoded `scene.cursor.location = (0, 0, 0)` as the pivot for `transform.mirror`. The 3D cursor is the pivot, so origins were always reflected through the world origin regardless of the center object's position. Fixed by passing `center_loc` and using it as the cursor position.
+
+**Bug 2:** The world matrix formula used `M_at @ mat @ M_at` (the conjugate). This is only self-consistent when `M_at` has no translation. When `center_loc ≠ (0,0,0)`, the double application of the translation inside `M_at` cancels the offset — objects were reflected through zero regardless of center position. Fixed by using the asymmetric formula `M_at @ mat @ M_lin` for world matrices, while `matrix_parent_inverse` continues to use `M_lin @ mpi @ M_lin`.
+
+---
+
+### v2.2 — Hierarchy accumulation fix (superseded by v2.3)
+
+Attempted fix for objects whose parent is inside the selection being shifted by an extra `2×center_X` per hierarchy level. The approach of choosing `M_left` per object (M_at when parent outside selection, M_lin when parent inside) worked in isolation but was superseded by the v2.3 world-space rewrite which solves the problem more fundamentally.
+
+---
+
+### v2.3 — World-space rewrite (root cause fix)
+
+Two bugs both traced to the same root cause: all transform and animation math was performed in **parent-local space** rather than world space.
+
+**Bug — Y/Z axis swap:** The parent object (`Mig23_98_Hull_LOD0.005`) has a non-default rotation — its local Y axis points along global Z and local Z along global Y. Applying `M_lin` for "Mirror Y" in local space negated the local-Y component of the matrix, which corresponds to global Z. So "Mirror Y" was actually mirroring in the Z direction and vice versa.
+
+**Bug — center offset ignored when parent is offset:** `M_at` is built from global `center_loc`, but `matrix_local` is expressed relative to the parent. When the parent is translated in world space, its local-space origin is at the parent's world position, not at the world origin. Applying a global-space `M_at` to a parent-local matrix produced results as if the center were at the parent's position rather than `center_loc`.
+
+**Fix — work entirely in world space:**
+
+- `bake_world_matrices` replaces `bake_local_matrices`
+- `dst.matrix_world = M_at @ src.matrix_world @ M_lin` replaces all local decomposition
+- `compute_new_mpi` correctly derives the new `matrix_parent_inverse` accounting for whether the parent is in the selection or not
+- All animation math converts baked world matrices to mirrored local matrices via `new_mpi` and the per-frame parent world
+
+---
+
+### v2.4 — Animated parent world resampled per keyframe (current)
+
+**Bug:** `build_mirrored_action` computed the mirrored local matrix as:
+
+```
+mir_local = inv(new_mpi) @ inv(dst_parent_world) @ mir_world
+```
+
+where `dst_parent_world` was a **single static snapshot** of the parent's world matrix captured at `saved_frame`. When the parent is itself animated (e.g. a strut whose rotation drives a child panel), its world matrix is different at each keyframe. Using the frame-0 snapshot for all frames gave correct results only at `saved_frame`; all other keyframes produced wrong Euler angles in the mirrored local matrix.
+
+The result: the initial state (frame 0) looked correct; the end state (e.g. frame 30, fully deployed landing gear) had completely wrong orientations.
+
+**Fix:**
+
+In STEP 3, `src.parent.matrix_world` is now baked at every frame the child has a keyframe (in addition to the child's own world matrix). In `build_mirrored_action`, the parent world is looked up per frame from this baked dict:
+
+```
+dst_par_w_f = M_at @ src_par_world_f @ M_lin   (parent in selection)
+dst_par_w_f = src_par_world_f                   (parent outside selection)
+mir_local_f = inv(new_mpi) @ inv(dst_par_w_f) @ mir_world_f
+```
+
+This correctly handles animated parents at any depth in the hierarchy.
