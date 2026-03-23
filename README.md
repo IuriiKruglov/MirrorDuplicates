@@ -9,6 +9,11 @@ Mirror Duplicates Global creates symmetrical duplicates of selected objects — 
 
 Key design constraint: **scale is never applied to geometry**. Mirroring is done via Blender's Mirror modifier, so custom split normals (custom normals baked into meshes for smooth shading across hard edges) are fully preserved.
 
+<a href="https://www.youtube.com/watch?v=2c-JAEL5wCg">
+  <img src="https://github.com/user-attachments/assets/1d94df68-9509-45e8-b7d3-971d0f1ecacf" alt="Video Preview">
+</a>
+
+
 ---
 
 ## Features
